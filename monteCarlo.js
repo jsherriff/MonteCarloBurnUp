@@ -1,5 +1,4 @@
 $(function () {
-	debugger;
 	var calcVelocities = function(burnUp){
 		var velocities;
 		if(burnUp == null || burnUp.length === 0){
@@ -29,8 +28,7 @@ $(function () {
 		return iterations;
 	};
 
-	// var burnUp = [1, 5, 9, 15, 18];
-	var burnUp = [1, 5];
+	var burnUp = [1, 5, 9, 15, 18];
 
 	var velocities = calcVelocities(burnUp);
 	console.log("velocities = ", velocities);
@@ -38,265 +36,98 @@ $(function () {
 	var maxIterations = 20;
 	var iterations = createXAxisLabels(maxIterations);
 
-	var noRuns = 100;
-	var targetScope = 15;
+	var noRuns = 1000;
+	var targetScope = 40;
 
-	projectionRoot = {
-		x: burnUp.length - 1,
-		y: burnUp[burnUp.length -1],
-		remaining: noRuns,
-		children: []
-	};
-
+	var pathMap = {};
 	var endCounts = {};
 
-	var series = [
-		{
-			data: burnUp,
-			name: 'Actual'
-		}
-	];
+	var start = {
+		x: burnUp.length - 1,
+		y: burnUp[burnUp.length -1]
+	};
 
-	var nextSeries = 1;
+	for(var i=0; i < noRuns; i++){
+		var current = start;
+		var path = [current];
 
-	var processNode = function(parentSeries, node, createNewSeries){
-		// console.log("processing node ("+ node.x +", "+ node.y+"), parentSeries.name = "+ parentSeries.name+
-		// 	", createNewSeries =  "+ createNewSeries);
-		var pathSeries;
-		if(createNewSeries){
-			// var show = nextSeries < 3;
-			var show = true;
-			pathSeries = {
-				data: parentSeries.data.slice(0),
-				name: 'Path '+ nextSeries++,
-				dashStyle: 'Dash',
-				color: '#FF8000',
-				marker: {
-					symbol: 'circle'
-				},
-				visible: show,
-				showInLegend: show
+		// keep going until we get there or give up hope
+		while(current.y < targetScope && current.x < maxIterations){
 
-			};
-			series.push(pathSeries);
-			// console.log("creating path "+ pathSeries.name);
-		}
-		else{
-			pathSeries = parentSeries;
-		}
+			var randVelocity = _.sample(velocities);
+			var newY = current.y + randVelocity;
 
-		pathSeries.data.push({
-			x: node.x,
-			y: node.y
-		});
-
-
-		// figure out children
-		if(node.y < targetScope){
-			for(var i=0, l=velocities.length; i < l; i++){
-				var newY = node.y + velocities[i];
-				if(newY > targetScope){
-					newY = targetScope;
-				}
-				var child = {
-					x: node.x +1,
-					y: newY,
-					remaining: node.remaining / l,
-					children: []
-				};
-				node.children.push(child)
+			// clip to the target scope
+			if(newY > targetScope){
+				newY = targetScope;
 			}
-		}
-		else{
-			// console.log("finishing node ("+ node.x +", "+ node.y+"), parentSeries.name = "+ parentSeries.name+
-			// 	", pathSeries.name = "+ pathSeries.name +", createNewSeries =  "+ createNewSeries);
-		}
 
-		// // create bucketed counts of new endings for this step in the path (newY -> newYObj)
-		// for(var i=0; i < remaining; i++){
-		// 	var randVelocity = _.sample(velocities);
-		// 	var newY = current.y + randVelocity;
+			current = {
+				x: current.x +1,
+				y: newY
+			}
+			path.push(current);
 
-		// 	// clip to the target scope
-		// 	if(newY > targetScope){
-		// 		newY = targetScope;
-		// 	}
+			if(current.y === targetScope){
+				var pathStr = _.pluck(path, 'y').join('/');
 
-		// 	// create the obj if necessary
-		// 	var newYObj = newYs[newY] = newYs[newY] || {
-		// 		y: newY,
-		// 		count: 0,
-		// 		parents: []
-		// 	};
-		// 	newYObj.count++;
-		// 	newYObj.parents = _.union(newYObj.parents, [current]);
-		// }
-
-
-		_.eachRight(node.children, function(child, i){
-			var newSeries = i != 0;
-			processNode(pathSeries, child, newSeries);
-		});
-	};
-
-	var dummyParentSeries = {
-		data: [],
-		name: 'dummy'
-	};
-	processNode(dummyParentSeries, projectionRoot, true);
-
-
-
-	/*
-
-	// iteration to process (outer array is iteration, inner is children to process in that iteration)
-	var iterationNodes = [projectionRoot];
-	var nextIterationNodes = [];
-	var newYs = {};
-
-	while(iterationNodes.length > 0){
-
-		var current = iterationNodes.pop();
-		var remaining = current.remaining;
-
-		// check if this path is done
-		if(current.y === targetScope){
-			// add it to the right histogram bucket
-			endCounts[current.x] = (endCounts[current.x] || 0) + current.remaining;
-		}
-		else{
-
-			// create bucketed counts of new endings for this step in the path (newY -> newYObj)
-			for(var i=0; i < remaining; i++){
-				var randVelocity = _.sample(velocities);
-				var newY = current.y + randVelocity;
-
-				// clip to the target scope
-				if(newY > targetScope){
-					newY = targetScope;
-				}
-
-				// create the obj if necessary
-				var newYObj = newYs[newY] = newYs[newY] || {
-					y: newY,
-					count: 0,
-					parents: []
+				pathMap[pathStr] = pathMap[pathStr] || path;
+				endCount = endCounts[current.x] = endCounts[current.x] || {
+					x: current.x,
+					y: 0
 				};
-				newYObj.count++;
-				newYObj.parents = _.union(newYObj.parents, [current]);
+				endCount.y++;
 			}
 
 		}
-
-		// check if it's time to move on to the next iteration
-		if(iterationNodes.length === 0){
-
-			// convert buckets into new points to process
-			_.each(newYs, function(newYObj){
-				var child = {
-					x: current.x + 1,
-					y: newYObj.y,
-					remaining: newYObj.count,
-					children: []
-				}
-
-				_.each(newYObj.parents, function(parent){
-					parent.children.push(child);
-				});
-				nextIterationNodes.push(child);
-			});
-
-			iterationNodes = nextIterationNodes;
-			nextIterationNodes = [];
-			newYs = {};
-		}
-
 	}
 
 	console.log('endCounts:', endCounts);
 
-
-
-
 	var series = [
 		{
 			data: burnUp,
-			name: 'Actual'
+			name: 'Actual',
+			color: '#FF0000'
 		}
 	];
 
 	var nextSeries = 1;
 
-	var processChild = function(parentSeriesData, child, createNewSeries){
-		var pathSeriesData;
-		if(createNewSeries){
-			var show = nextSeries < 3;
-			pathSeriesData = parentSeriesData;
-			var pathSeries = {
-				data: pathSeriesData,
-				name: 'Path '+ nextSeries++,
-				dashStyle: 'Dash',
-				color: '#FF8000',
-				marker: {
-					symbol: 'circle'
-				},
-				visible: show,
-				showInLegend: show
+	var lastIterIndex = _.max(endCounts, 'x').x;
+	console.log('lastIterIndex: ', lastIterIndex);
 
-			};
-			series.push(pathSeries);
-		}
-		else{
-			pathSeriesData = parentSeriesData;
+	var maxIter = _.max(endCounts, 'y');
+	console.log('maxIter: ', maxIter);
+
+	var showPathsModulo = 50;
+
+	_.each(pathMap, function(path, i){
+		var lastPoint = _.last(path);
+		var endsOnMax = (lastPoint.x == maxIter.x);
+
+		_.last(path).marker = {
+			enabled: true,
+			symbol: endsOnMax ? 'circle' : 'triangle',
+			radius: 4
 		}
 
-		pathSeriesData.push({
-			x: child.x,
-			y: child.y
+		series.push({
+			data: path,
+			name: 'Path '+ nextSeries++,
+			dashStyle: 'Dash',
+			color: endsOnMax ? '#0000FF' : '#FF8000',
+			marker: {
+				symbol: 'circle',
+				radius: 2
+			},
+			showInLegend: false,
+			visible: (nextSeries % showPathsModulo === 0)
 		});
+	});
 
-		var parentCopy = pathSeriesData.slice(0);
 
-		_.each(child.children, function(child, i){
-			var newSeries = i != 0;
-			parentSeriesData = newSeries ? parentCopy : pathSeriesData;
-			processChild(parentSeriesData, child, i != 0);
-		});
-	};
-
-	processChild([], projectionRoot, true);
-*/
-
-	// walk tree to convert paths to series
-	//TODO optimize to avoid overhead of repeated unshifts
-	// _.each(pathEnds, function(end, i){
-	// 	var data = [];
-	// 	var current = end;
-	// 	while(current != null){
-	// 		data.unshift({
-	// 			x: current.x,
-	// 			y: current.y
-	// 		});
-	// 		current = current.parent;
-	// 	}
-
-	// 	// var show = i % 5 === 0;
-	// 	var show = true;
-
-	// 	series.push({
-	// 		data: data,
-	// 		name: 'Path '+i,
-	// 		dashStyle: 'Dash',
-	// 		color: '#FF8000',
-	// 		marker: {
-	// 			symbol: 'circle'
-	// 		},
-	// 		showInLegend: show,
-	// 		visible: show
-	// 	});
-	// });
-
-	$('#container').highcharts({
+	$('#burnup').highcharts({
 		chart: {
 			zoomType: 'xy'
 		},
@@ -305,6 +136,21 @@ $(function () {
 		},
 		xAxis: {
 			categories: iterations,
+			min: 0,
+			max: lastIterIndex,
+			plotLines: [
+				{
+					color: '#00AAFF',
+					value: start.x,
+					width: 2,
+					label: {
+						text: 'TODAY',
+						style: {
+							color: '#00AAFF'
+						}
+					}
+				}
+			],
 			title: {
 				text: 'Iteration'
 			}
@@ -314,7 +160,66 @@ $(function () {
 				text: 'Count'
 			}
 		},
-		series: series
+		series: series,
+		credits: {
+			enabled: false
+		}
+	});
+
+	var end = _.map(endCounts, function(count, iterIndex){
+		return {
+			x: parseInt(iterIndex, 10),
+			y: count
+		};
+	});
+
+	var histogramPoints = _.values(endCounts);
+	console.table(histogramPoints);
+
+	var histogramSeries = [
+		{
+			name: 'Counts',
+			data: histogramPoints
+		}
+	];
+
+	var histogramEnds = iterations.slice(0);
+	console.log(histogramEnds);
+
+	$('#histogram').highcharts({
+
+		chart: {
+			type: 'column',
+			zoomType: 'xy'
+		},
+		title: {
+			text: 'Histogram'
+		},
+		plotOptions: {
+			column: {
+				borderWidth: 1,
+				pointPadding: 0,
+				groupPadding: 0
+			}
+		},
+		legend: {
+			enabled: false
+		},
+		xAxis: {
+			categories: histogramEnds,
+			min: 0,
+			max: lastIterIndex
+		},
+		yAxis: {
+			min: 0,
+			title: {
+				text: 'Count'
+			}
+		},
+		series: histogramSeries,
+		credits: {
+			enabled: false
+		}
 	});
 
 });
