@@ -16,36 +16,34 @@ $(function () {
 				prev = burn;
 			}
 		}
-
 		return velocities;
 	};
 
-	var createXAxisLabels = function(maxIterations){
-		var iterations = [];
-		for(var i=1; i < maxIterations; i++){
-			iterations.push('' + i);
-		}
-		return iterations;
-	};
 
 	var burnUp = [1, 5, 9, 15, 18];
-
-	var velocities = calcVelocities(burnUp);
-	console.log("velocities = ", velocities);
-
-	var maxIterations = 20;
-	var iterations = createXAxisLabels(maxIterations);
-
-	var noRuns = 1000;
 	var targetScope = 40;
 
-	var pathMap = {};
+
+
+
+
+	var velocities = calcVelocities(burnUp);
+	console.log("Velocities", velocities)
+
+	var maxIterations = 20;
+
+	var noRuns = 500;
+
+	var possibilities = [];
 	var endCounts = {};
 
 	var start = {
 		x: burnUp.length - 1,
 		y: burnUp[burnUp.length -1]
 	};
+
+
+	var maxX = 0;
 
 	for(var i=0; i < noRuns; i++){
 		var current = start;
@@ -69,20 +67,38 @@ $(function () {
 			path.push(current);
 
 			if(current.y === targetScope){
-				var pathStr = _.pluck(path, 'y').join('/');
-
-				pathMap[pathStr] = pathMap[pathStr] || path;
+				//var pathStr = _.pluck(path, 'y').join('/');
+				possibilities.push(path);
+				maxX = Math.max(maxX, current.x);
+				// pathMap[pathStr] = pathMap[pathStr] || path;
 				endCount = endCounts[current.x] = endCounts[current.x] || {
 					x: current.x,
 					y: 0
 				};
 				endCount.y++;
 			}
-
 		}
 	}
+	// console.log("pathMap", pathMap);
 
 	console.log('endCounts:', endCounts);
+
+
+	// build histogram data
+	var countsByIteration = _.map(Array(maxIterations), function() { return 0; });
+	_.each(possibilities, function(possibility, idx){
+		// update the count by getting the last iteration in the
+		// possibility and incrementing that slot
+		countsByIteration[_.last(possibility).x]++
+	});
+	var mostLikelyIteration = _.indexOf(countsByIteration, _.max(countsByIteration));
+
+	console.log("countsByIteration",countsByIteration);
+	console.log("maxX", maxX);
+	console.log("mostLikelyIteration",mostLikelyIteration);
+
+
+
 
 	var series = [
 		{
@@ -92,7 +108,7 @@ $(function () {
 		}
 	];
 
-	var nextSeries = 1;
+
 
 	var lastIterIndex = _.max(endCounts, 'x').x;
 	console.log('lastIterIndex: ', lastIterIndex);
@@ -101,10 +117,12 @@ $(function () {
 	console.log('maxIter: ', maxIter);
 
 	var showPathsModulo = 50;
+	var nextSeries = 1;
 
-	_.each(pathMap, function(path, i){
-		var lastPoint = _.last(path);
-		var endsOnMax = (lastPoint.x == maxIter.x);
+	_.each(possibilities, function(path, i){
+		if ((i % showPathsModulo) !== 0) { return; }
+
+		var endsOnMax = (_.last(path).x == mostLikelyIteration);
 
 		_.last(path).marker = {
 			enabled: true,
@@ -121,10 +139,33 @@ $(function () {
 				symbol: 'circle',
 				radius: 2
 			},
-			showInLegend: false,
-			visible: (nextSeries % showPathsModulo === 0)
+			showInLegend: false
 		});
 	});
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+	var createXAxisLabels = function(maxIterations){
+		var iterations = [];
+		for(var i=1; i < maxIterations; i++){
+			iterations.push('' + i);
+		}
+		return iterations;
+	};
+	var iterations = createXAxisLabels(maxIterations);
+
 
 
 	$('#burnup').highcharts({
@@ -132,7 +173,7 @@ $(function () {
 			zoomType: 'xy'
 		},
 		title: {
-			text: 'Monte Carlo Burn Up'
+			text: ''
 		},
 		xAxis: {
 			categories: iterations,
@@ -158,7 +199,9 @@ $(function () {
 		yAxis: {
 			title: {
 				text: 'Count'
-			}
+			},
+			max:targetScope,
+			min: 0
 		},
 		series: series,
 		credits: {
@@ -184,7 +227,7 @@ $(function () {
 	];
 
 	var histogramEnds = iterations.slice(0);
-	console.log(histogramEnds);
+	console.log("Histogram Ends", histogramEnds);
 
 	$('#histogram').highcharts({
 
@@ -193,7 +236,7 @@ $(function () {
 			zoomType: 'xy'
 		},
 		title: {
-			text: 'Histogram'
+			text: ''
 		},
 		plotOptions: {
 			column: {
@@ -206,6 +249,14 @@ $(function () {
 			enabled: false
 		},
 		xAxis: {
+			labels: {
+				enabled:false
+			},
+			lineWidth: 0,
+			minorGridLineWidth:0,
+			lineColor:'transparent',
+			minorTickLength:0,
+			tickLength:0,
 			categories: histogramEnds,
 			min: 0,
 			max: lastIterIndex
@@ -213,8 +264,11 @@ $(function () {
 		yAxis: {
 			min: 0,
 			title: {
-				text: 'Count'
-			}
+				text: ''
+			},
+			labels: { enabled:false },
+			minorGridLineWidth:0,
+			gridLineWidth:0
 		},
 		series: histogramSeries,
 		credits: {
