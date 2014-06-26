@@ -79,7 +79,6 @@ $(function () {
 			}
 		}
 	}
-	// console.log("pathMap", pathMap);
 
 	console.log('endCounts:', endCounts);
 
@@ -110,12 +109,14 @@ $(function () {
 
 
 
-	var lastIterIndex = _.max(endCounts, 'x').x;
+	var lastIterIndex = maxX;
 	console.log('lastIterIndex: ', lastIterIndex);
 
 	var maxIter = _.max(endCounts, 'y');
 	console.log('maxIter: ', maxIter);
 
+	// TODO - we need to show the min and the max as well.
+	// TODO - color the series by frequency
 	var showPathsModulo = 50;
 	var nextSeries = 1;
 
