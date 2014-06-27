@@ -1,6 +1,6 @@
 $(function () {
 	var seriesColor = "#0000ff";
-	var maximumNumberOfMonteCarloRuns = 500;
+	var maximumNumberOfMonteCarloRuns = 1000;
 
 
 
@@ -43,6 +43,11 @@ $(function () {
 			velocities: calcVelocities(burnUp)
 		};
 	}
+
+
+
+
+
 
 	var shadeColor = function(color, percent) {
 		var num = parseInt(color.slice(1),16), amt = Math.round(2.55 * percent), R = (num >> 16) + amt, G = (num >> 8 & 0x00FF) + amt, B = (num & 0x0000FF) + amt;
