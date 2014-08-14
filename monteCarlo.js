@@ -7,6 +7,7 @@ $(function () {
 
 	var query = function() {
 		return [];
+
 	}
 
 	var transform = function(data) {
@@ -54,8 +55,9 @@ $(function () {
 		return "#" + (0x1000000 + (R<255?R<1?0:R:255)*0x10000 + (G<255?G<1?0:G:255)*0x100 + (B<255?B<1?0:B:255)).toString(16).slice(1);
 	};
 	var calculateColorToUse = function(iterationIndex, mostLikelyIterationIndex) {
-		var shadePercent = Math.abs(mostLikelyIterationIndex-iterationIndex) * 20;
-		var colorToUse = shadeColor(seriesColor, shadePercent);
+		var gradients = (iterationIndex < mostLikelyIterationIndex) ? (mostLikelyIterationIndex - firstIndex) + 1 : (lastIndex - mostLikelyIterationIndex) + 1;
+		var gradient = (mostLikelyIterationIndex === iterationIndex)? 1.0 : 1.0 - ((1.0 / gradients) * Math.abs(mostLikelyIterationIndex - iterationIndex));
+		var colorToUse = 'rgba(0,0,255,' + gradient + ')';
 		// console.log("Shade percent", shadePercent);
 		// console.log("Shade color", colorToUse);
 		if (iterationIndex == mostLikelyIterationIndex) {
@@ -126,7 +128,7 @@ $(function () {
 
 
 	// build histogram data
-	var countsByIteration = _.map(Array(maxX), function() { return 0; });
+	var countsByIteration = _.map(Array(maxX+1), function() { return 0; });
 	_.each(possibilities, function(possibility, idx){
 		// update the count by getting the last iteration in the
 		// possibility and incrementing that slot
@@ -135,7 +137,10 @@ $(function () {
 
 	// determine with iteration (index) has the highest frequency
 	var mostLikelyIteration = _.indexOf(countsByIteration, _.max(countsByIteration));
-
+	var firstIndex = _.findIndex(countsByIteration, function(iter) {
+  		return iter !== 0;
+	});
+	var lastIndex = maxX;  // unnecessary, but 
 
 
 
@@ -155,7 +160,7 @@ $(function () {
 
 	// the number of series showing per iteration. this is used to
 	// ensure we dont' show too many
-	var seriesCountPerIteration = _.map(Array(maxX), function() { return 0; });
+	var seriesCountPerIteration = _.map(Array(maxX+1), function() { return 0; });
 	_.each(possibilities, function(path, i) {
 
 		var iteration = _.last(path).iteration;
@@ -182,28 +187,37 @@ $(function () {
 		var colorToUse = calculateColorToUse(iteration, mostLikelyIteration);
 		var dashStyle = calculateDashStyleToUse(iteration, mostLikelyIteration);
 
-		burnupSeriesData.push({
-			data: seriesData,
-			dashStyle: dashStyle,
-			color: colorToUse,
-			marker: {
-				symbol: 'circle',
-				radius: 2
-			},
-			showInLegend: false
-		});
+		// "just connect first and last"
+		if (seriesData.length > 2) {
+			seriesData[1] = seriesData[seriesData.length-1];
+			seriesData.length = 2;
+			dashStyle = "purple";
+		}
+		// and ensure only one instance of each
+		if (!_.find(burnupSeriesData, function(series) {
+			return series.data[1].x === seriesData[1].x
+		})) {
+
+			burnupSeriesData.push({
+				data: seriesData,
+				dashStyle: dashStyle,
+				color: colorToUse,
+				marker: {
+					symbol: 'circle',
+					radius: 2
+				},
+				showInLegend: false,
+				lineWidth: 5
+			});
+		}
 	});
 
 
 
 
 
-
-
-
-
 	// both charts
-	var xAxisCategories = _.map(Array(maxX), function(v,i) { return i; });
+	var xAxisCategories = _.map(Array(maxX+1), function(v,i) { return i; });
 
 
 	var histogramSeries = _.map(countsByIteration, function(frequency,iteration) {
