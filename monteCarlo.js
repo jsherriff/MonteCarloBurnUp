@@ -2,7 +2,7 @@ $(function () {
 	var seriesColor = "#0000ff";
 	var maximumNumberOfMonteCarloRuns = 1000;
 
-	var probabilityVisualization = "filled" // "filled", "original", "dots" or "lines"
+	var probabilityVisualization = "dots" // "filled", "original", "dots" or "lines" or "none"
 
 
 	var query = function() {
@@ -190,7 +190,7 @@ $(function () {
 		var dashStyle = calculateDashStyleToUse(iteration, mostLikelyIteration);
 
 		// "just connect first and last"
-		if (seriesData.length > 2 && (probabilityVisualization === "lines" || probabilityVisualization === "filled" || probabilityVisualization === "dots" ) ) {
+		if (seriesData.length > 2 && (probabilityVisualization === "lines" || probabilityVisualization === "filled" || probabilityVisualization === "dots" || probabilityVisualization ===  "none" ) ) {
 			seriesData[1] = seriesData[seriesData.length-1];
 			seriesData.length = 2;
 			if (probabilityVisualization === "lines") {
@@ -198,7 +198,7 @@ $(function () {
 			}
 		}
 		// and ensure only one instance of each
-		if (probabilityVisualization === "original" || !_.find(burnupSeriesData, function(series) {
+		if ((probabilityVisualization === "none" && iteration === mostLikelyIteration) || probabilityVisualization === "original" || (probabilityVisualization === "lines" || probabilityVisualization === "filled" || probabilityVisualization === "dots") && !_.find(burnupSeriesData, function(series) {
 			return series.data[1].x === seriesData[1].x
 		})) {
 
