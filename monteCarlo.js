@@ -89,6 +89,7 @@ $(function () {
 	// run the simulation
 	var possibilities = [];
 	var maxX = 0;
+	var firstSeriesIndex = 0, lastSeriesIndex = 0, mostLikelySeriesIndex = 0;
 
 	var start = {
 		iteration: dataToVisualize.iterationsComplete - 1,
@@ -140,7 +141,7 @@ $(function () {
 	var firstIndex = _.findIndex(countsByIteration, function(iter) {
   		return iter !== 0;
 	});
-	var lastIndex = maxX;  // unnecessary, but 
+	var lastIndex = maxX;  // unnecessary, but ...
 
 
 
@@ -161,6 +162,7 @@ $(function () {
 	// the number of series showing per iteration. this is used to
 	// ensure we dont' show too many
 	var seriesCountPerIteration = _.map(Array(maxX+1), function() { return 0; });
+
 	_.each(possibilities, function(path, i) {
 
 		var iteration = _.last(path).iteration;
@@ -207,14 +209,16 @@ $(function () {
 					radius: 2
 				},
 				showInLegend: false,
-				lineWidth: 5
+				lineWidth: 8
 			});
+			if (iteration === firstIndex)
+				firstSeriesIndex = burnupSeriesData.length -1;
+			if (iteration === mostLikelyIteration)
+				mostLikelySeriesIndex = burnupSeriesData.length -1;
+			if (iteration === lastIndex)
+				lastSeriesIndex = burnupSeriesData.length -1;
 		}
 	});
-
-
-
-
 
 	// both charts
 	var xAxisCategories = _.map(Array(maxX+1), function(v,i) { return i; });
@@ -282,6 +286,42 @@ $(function () {
 			enabled:false
 		}
 
+		// add 'cone of uncertainty'
+	}, function(chart) {
+		var bbox1 = chart.series[0].data[todaysIterationIndex].graphic.element.getBBox();
+		var bbox2 = chart.series[firstSeriesIndex].graph.element.getBBox();
+		var bbox3 = chart.series[mostLikelySeriesIndex].graph.element.getBBox();
+		var bbox4 = chart.series[lastSeriesIndex].graph.element.getBBox();
+		// "y"'s for all but the first are wacky 
+		var plotY=chart.plotTop+4; // fudge factor?
+		var path1 = ['M', chart.plotLeft+bbox1.x, plotY+bbox1.y+2, 'L', chart.plotLeft+bbox2.x+bbox2.width, /* bug? bbox2.y */ plotY+bbox1.y-bbox2.height, 'L', chart.plotLeft+bbox3.x+bbox3.width, plotY+bbox1.y-bbox2.height, 'Z' ];
+		var attr1 = {
+			//'stroke-width': 1,
+			//stroke: 'red',
+			fill: {
+                linearGradient: { x1: 0, y1: 0, x2: 1, y2: 1 },
+                stops: [
+                    [0, 'rgb(255, 255, 255)'],
+                    [1, 'rgb(0,0,255)']
+                ]
+            },
+			zIndex: 10
+		};
+		var path2 = ['M', chart.plotLeft+bbox1.x, plotY+bbox1.y+2, 'L', chart.plotLeft+bbox4.x+bbox4.width, plotY+bbox1.y-bbox2.height, 'L', chart.plotLeft+bbox3.x+bbox3.width, plotY+bbox1.y-bbox2.height, 'Z' ];
+		var attr2 = {
+			//'stroke-width': 1,
+			//stroke: 'red',
+			fill: {
+                linearGradient: { x1: 1, y1: 1, x2: 0, y2: 0 },
+                stops: [
+                    [0, 'rgb(255,255,255)'],
+                    [1, 'rgb(0, 0, 255)']
+                ]
+            },
+			zIndex: 10
+		};
+		chart.renderer.path(path1).attr(attr1).add();
+		chart.renderer.path(path2).attr(attr2).add();
 	});
 
 
