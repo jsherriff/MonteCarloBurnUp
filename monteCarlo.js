@@ -2,7 +2,7 @@ $(function () {
 	var seriesColor = "#0000ff";
 	var maximumNumberOfMonteCarloRuns = 1000;
 
-
+	var probabilityVisualization = "filled" // "filled", "original", "dots" or "lines"
 
 
 	var query = function() {
@@ -190,13 +190,15 @@ $(function () {
 		var dashStyle = calculateDashStyleToUse(iteration, mostLikelyIteration);
 
 		// "just connect first and last"
-		if (seriesData.length > 2) {
+		if (seriesData.length > 2 && (probabilityVisualization === "lines" || probabilityVisualization === "filled" || probabilityVisualization === "dots" ) ) {
 			seriesData[1] = seriesData[seriesData.length-1];
 			seriesData.length = 2;
-			dashStyle = "purple";
+			if (probabilityVisualization === "lines") {
+				dashStyle = "purple";
+			}
 		}
 		// and ensure only one instance of each
-		if (!_.find(burnupSeriesData, function(series) {
+		if (probabilityVisualization === "original" || !_.find(burnupSeriesData, function(series) {
 			return series.data[1].x === seriesData[1].x
 		})) {
 
@@ -209,7 +211,7 @@ $(function () {
 					radius: 2
 				},
 				showInLegend: false,
-				lineWidth: 8
+				lineWidth: 2
 			});
 			if (iteration === firstIndex)
 				firstSeriesIndex = burnupSeriesData.length -1;
@@ -254,6 +256,9 @@ $(function () {
 					width: 2,
 					label: {
 						text: 'TODAY',
+						verticalAlign: 'bottom',
+						textAlign: 'right',
+						y: -10,
 						style: {
 							color: '#00AAFF'
 						}
@@ -264,6 +269,9 @@ $(function () {
 					color: calculateColorToUse(mostLikelyIteration,mostLikelyIteration),
 					label: {
 						text: 'PROBABLE FINISH',
+						verticalAlign: 'bottom',
+						textAlign: 'right',
+						y: -10,
 						style: {
 							color: calculateColorToUse(mostLikelyIteration,mostLikelyIteration)
 						}
@@ -288,40 +296,29 @@ $(function () {
 
 		// add 'cone of uncertainty'
 	}, function(chart) {
+		if (probabilityVisualization !== "filled") {
+			return;
+		}
+		var i;
 		var bbox1 = chart.series[0].data[todaysIterationIndex].graphic.element.getBBox();
-		var bbox2 = chart.series[firstSeriesIndex].graph.element.getBBox();
-		var bbox3 = chart.series[mostLikelySeriesIndex].graph.element.getBBox();
-		var bbox4 = chart.series[lastSeriesIndex].graph.element.getBBox();
-		// "y"'s for all but the first are wacky 
-		var plotY=chart.plotTop+4; // fudge factor?
-		var path1 = ['M', chart.plotLeft+bbox1.x, plotY+bbox1.y+2, 'L', chart.plotLeft+bbox2.x+bbox2.width, /* bug? bbox2.y */ plotY+bbox1.y-bbox2.height, 'L', chart.plotLeft+bbox3.x+bbox3.width, plotY+bbox1.y-bbox2.height, 'Z' ];
-		var attr1 = {
-			//'stroke-width': 1,
-			//stroke: 'red',
-			fill: {
-                linearGradient: { x1: 0, y1: 0, x2: 1, y2: 1 },
-                stops: [
-                    [0, 'rgb(255, 255, 255)'],
-                    [1, 'rgb(0,0,255)']
-                ]
-            },
-			zIndex: 10
-		};
-		var path2 = ['M', chart.plotLeft+bbox1.x, plotY+bbox1.y+2, 'L', chart.plotLeft+bbox4.x+bbox4.width, plotY+bbox1.y-bbox2.height, 'L', chart.plotLeft+bbox3.x+bbox3.width, plotY+bbox1.y-bbox2.height, 'Z' ];
-		var attr2 = {
-			//'stroke-width': 1,
-			//stroke: 'red',
-			fill: {
-                linearGradient: { x1: 1, y1: 1, x2: 0, y2: 0 },
-                stops: [
-                    [0, 'rgb(255,255,255)'],
-                    [1, 'rgb(0, 0, 255)']
-                ]
-            },
-			zIndex: 10
-		};
-		chart.renderer.path(path1).attr(attr1).add();
-		chart.renderer.path(path2).attr(attr2).add();
+		if (chart.series[0].data.length < 2)
+			return;
+		var spacing = (chart.series[0].data[1].plotX - chart.series[0].data[0].plotX) / 2;
+
+		for (i=1; i < chart.series.length; i++) {
+			var bbox2 = chart.series[i].graph.element.getBBox();
+			// "y"'s for all but the first are wacky 
+			var plotY=chart.plotTop+4; // fudge factor?
+			var path = ['M', chart.plotLeft+bbox1.x, plotY+bbox1.y+2, 'L', chart.plotLeft+bbox2.x+bbox2.width-spacing, /* bug? bbox2.y */ plotY+bbox1.y-bbox2.height, 'L', chart.plotLeft+bbox2.x+bbox2.width+spacing, plotY+bbox1.y-bbox2.height, 'Z' ];
+			var attr = {
+				//'stroke-width': 1,
+				//stroke: 'red',
+				fill: chart.series[i].color,
+				zIndex: 10
+			};
+			chart.series[i].setVisible(false);
+			chart.renderer.path(path).attr(attr).add();
+		}
 	});
 
 
