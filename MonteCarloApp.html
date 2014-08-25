@@ -1,0 +1,1678 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>BurndownApp</title>
+
+    <script type="text/javascript" src="/apps/2.0rc3/sdk-debug.js"></script>qguw* qyx
+    <script type="text/javascript" src="/apps/2.0rc3/lib/analytics/analytics-all.js"></script>
+    <!-- <div id="histogram" style="height: 200px"></div> -->
+    <script type="text/javascript">
+        Rally.onReady(function () {
+                    //Ext.define("Rally.apps.charts.burndown.BurnDownChart", {
+
+    Ext.define("BurndownChart", {
+        requires: [
+            "Rally.ui.chart.Chart"
+        ],
+
+        chartComponentConfig: {
+            xtype: "rallychart",
+            itemId: "burndownchart",
+
+            aggregationErrorMessage: "No data to display. Check the data type setting for displaying data based on count versus plan estimate.",
+
+            storeType: "Rally.data.lookback.SnapshotStore",
+            storeConfig: {
+                find: {
+                    "_TypeHierarchy": { '$in' : [ -51038, -51006 ] },
+                    "Children": null
+                },
+                fetch: ["ScheduleState", "PlanEstimate", "ObjectId", "_ValidFrom", "_ValidTo"],
+                hydrate: ["ScheduleState"],
+                sort: {
+                    "_ValidFrom": 1
+                },
+                compress: true
+            },
+            calculatorType: "BurndownCalculator",
+            calculatorConfig: {
+                timeZone: "GMT",
+                completedScheduleStateNames: ["Accepted", "Released"],
+                enableProjections: true
+            },
+
+            chartColors: ["#005eb8", "#8dc63f", "#666666", "#c0c0c0"],
+
+            chartConfig: {
+                chart: {
+                    zoomType: "xy",
+                    marginLeft: 100
+                },
+                xAxis: {
+                    categories: [],
+                    tickmarkPlacement: "on",
+                    tickInterval: 7,
+                    title: {
+                        text: "Days",
+                        margin: 12
+                    },
+                    maxPadding: 0.25,
+                    labels: {
+                        x: 0,
+                        y: 20,
+                        overflow: "justify"
+                    },
+                    plotLines: []
+                },
+                yAxis: [],
+                tooltip: {
+                    formatter: function () {
+                        var floatValue = parseFloat(this.y),
+                            value = this.y;
+
+                        if (!isNaN(floatValue)) {
+                            value = Math.floor(floatValue * 100) / 100;
+                        }
+                        return "" + this.x + "<br />" + this.series.name + ": " + value;
+                    }
+                },
+                plotOptions: {
+                    series: {
+                        marker: {
+                            enabled: false,
+                            states: {
+                                hover: {
+                                    enabled: true
+                                }
+                            }
+                        },
+                        connectNulls: true
+                    },
+                    column: {
+                        pointPadding: 0,
+                        borderWidth: 0,
+                        stacking: null,
+                        shadow: false
+                    }
+                }
+            }
+        }
+    });
+
+    //Ext.define("Rally.apps.charts.burndown.BurnDownCalculator", {
+    Ext.define("BurndownCalculator", {
+        extend: "Rally.data.lookback.calculator.TimeSeriesCalculator",
+
+        getDerivedFieldsOnInput: function () {
+            var completedStates = this.config.completedScheduleStateNames,
+                aggregationType = this.config.chartAggregationType;
+
+            return [
+                {
+                    "as": "RemainingPoints",
+                    "f": function (snapshot) {
+                        var ss = snapshot.ScheduleState;
+                        if(completedStates.indexOf(ss) < 0) {
+                            if(aggregationType === "storycount") {
+                                return 1;
+                            } else if (snapshot.PlanEstimate) {
+                                return snapshot.PlanEstimate;
+                            }
+                        }
+
+                        return 0;
+                    }
+                },
+                {
+                    "as": "AcceptedPoints",
+                    "f": function (snapshot) {
+                        var ss = snapshot.ScheduleState;
+                        if (completedStates.indexOf(ss) > -1) {
+                            if (aggregationType === "storycount") {
+                                return 1;
+                            } else if (snapshot.PlanEstimate) {
+                                return snapshot.PlanEstimate;
+                            }
+                        }
+
+                        return 0;
+                    }
+                }
+            ];
+        },
+
+        getMetrics: function () {
+            return [
+                {
+                    "field": "RemainingPoints",
+                    "as": "To Do",
+                    "f": "sum"
+                },
+                {
+                    "field": "AcceptedPoints",
+                    "as": "Accepted",
+                    "f": "sum"
+                }
+            ];
+        },
+
+        getSummaryMetricsConfig: function () {
+            return [
+                {
+                    'as': 'Scope_max',
+                    'f': function(seriesData) {
+                            var max = 0, i = 0;
+                            for (i=0;i<seriesData.length;i++) {
+                                if(seriesData[i].Accepted + seriesData[i]['To Do'] > max) {
+                                    max = seriesData[i].Accepted + seriesData[i]['To Do'];
+                                }
+                            }
+                            return max;
+                         }
+                }
+            ];
+        },
+
+        getDerivedFieldsAfterSummary: function () {
+            return  [
+                {
+                    "as": "Ideal",
+                    "f": function (row, index, summaryMetrics, seriesData) {
+                        var max = summaryMetrics.Scope_max,
+                            increments = seriesData.length - 1,
+                            incrementAmount;
+                        if(increments === 0) {
+                            return max;
+                        }
+                        incrementAmount = max / increments;
+                        return Math.floor(100 * (max - index * incrementAmount)) / 100;
+                    },
+                    "display": "line"
+                },
+                {
+                    "as": "Prediction",
+                    "f": function (row, index, summaryMetrics, seriesData) {
+                        return null;
+                    },
+                    "display": "line",
+                    "dashStyle": "Dash"
+                }
+            ];
+        },
+
+        getProjectionsConfig: function () {
+            var days = (this.scopeEndDate.getTime() -
+                Rally.util.DateTime.fromIsoString(this.startDate).getTime()) / (24*1000*60*60);
+            var doubleTimeboxEnd = Ext.Date.add(Rally.util.DateTime.fromIsoString(this.startDate), Ext.Date.DAY, (Math.floor(days) * 2) - 1);
+            var timeboxEnd = Ext.Date.add(this.scopeEndDate, Ext.Date.DAY, -1);
+            if(this.projectionsConfig === undefined) {
+                this.projectionsConfig = {
+                    doubleTimeboxEnd: doubleTimeboxEnd,
+                    timeboxEnd: timeboxEnd,
+
+                    series: [
+                        {
+                            "as": "Prediction",
+                            "field": "To Do"
+                        }
+                    ],
+                    continueWhile: function (point) {
+                        var dt = Rally.util.DateTime.fromIsoString(point.tick);
+                        var end = (this.series[0].slope >= 0) ? this.timeboxEnd : this.doubleTimeboxEnd;
+                        return point.Prediction > 0 && dt < end;
+                    }
+                };
+            }
+            return this.projectionsConfig;
+        },
+
+        _firstNonZero: function(data) {
+             var i;
+             for(i=0;i<data.length;i++) {
+                if(data[i] > 0) {
+                    return i;
+                }
+             }
+             return 0;
+        },
+
+        _leastSquares: function(todoValues, firstIndex, lastIndex) {
+            var n = (lastIndex + 1) - firstIndex;
+            var i;
+            var sumx = 0.0, sumx2 = 0.0, sumy = 0.0, sumy2 = 0.0, sumxy = 0.0;
+            var slope, yintercept;
+
+            //Compute sums of x, x^2, y, y^2, and xy
+            for (i = firstIndex; i <= lastIndex; i++) {
+                sumx  = sumx  + i;
+                sumx2 = sumx2 + i * i;
+                sumy  = sumy  + todoValues[i];
+                sumy2 = sumy2 + todoValues[i] * todoValues[i];
+                sumxy = sumxy + i * todoValues[i];
+            }
+            slope = (n * sumxy - sumx * sumy) / (n * sumx2 - sumx * sumx);
+            yintercept = (sumy * sumx2 - sumx * sumxy) / (n * sumx2 - sumx * sumx);
+
+            return {slope: slope, yintercept: yintercept};
+        },
+
+        runCalculation: function (snapshots) {
+            var chartData = this.callParent(arguments);
+
+            if(chartData && chartData.projections && chartData.projections.series[0].slope > 0) {
+            // if the slope is positive, try using least squares.  If that's also positive, then use the first result
+                var todoData = chartData.series[0].data;
+                var firstTodoIndex = this._firstNonZero(todoData),
+                    lastTodoIndex = (todoData.length - 1) - chartData.projections.pointsAddedCount;
+
+                var results = this._leastSquares(todoData, firstTodoIndex, lastTodoIndex);
+
+                // override the prediction line only if least squares says the slope isn't positive
+                if(results.slope <= 0) {
+                    this.projectionsConfig.series[0].slope = results.slope;
+
+                    chartData = this.callParent(arguments);
+
+                    // project the plot back to the first todo value
+                    chartData.series[3].data[firstTodoIndex] = ((results.slope * firstTodoIndex) + results.yintercept) + (chartData.series[3].data[lastTodoIndex] - ((results.slope * lastTodoIndex) + results.yintercept));
+                    chartData.series[3].connectNulls = true;
+                    this.projectionsConfig = undefined;
+                }
+
+            }
+
+            if(new Date() < this.scopeEndDate) {
+                this._recomputeIdeal(chartData, this.scopeEndDate);
+            }
+
+            return chartData;
+        },
+
+        _recomputeIdeal: function(chartData, endDate) {
+             var index;
+             if(chartData.categories.length < 1) {
+                return;
+             }
+             if(this.workDays.length < 1) {
+                return;
+             }
+
+             var lastDate = Ext.Date.parse(chartData.categories[chartData.categories.length - 1], 'Y-m-d');
+             if(endDate > lastDate) {
+                // the scopeEndDate date wasn't found in the current categories...we need to extend categories to include it
+                // (honoring "workDays").
+
+                index = chartData.categories.length;
+                var dt = Ext.Date.add(lastDate, Ext.Date.DAY, 1);
+                while (dt < endDate) {
+                    while (this.workDays.indexOf(Ext.Date.format(dt, 'l')) === -1) {
+                        dt = Ext.Date.add(dt, Ext.Date.DAY, 1);
+                    }
+                    if (dt < endDate) {
+                        chartData.categories[index++] = Ext.Date.format(dt, 'Y-m-d');
+                    }
+                    dt = Ext.Date.add(dt, Ext.Date.DAY, 1);
+                }
+                index = chartData.categories.length - 1;
+             } else {
+                 // it is in "scope"...set index to the index of the last workday in scope
+                 index = this._indexOfDate(chartData, endDate);
+                 if(index === -1) {
+                    // it's in "scope", but falls on a non-workday...back up to the previous workday
+                    while (this.workDays.indexOf(Ext.Date.format(endDate, 'l')) === -1) {
+                        endDate = Ext.Date.add(endDate, Ext.Date.DAY, -1);
+                        index = this._indexOfDate(chartData, endDate);
+                    }
+                 }
+             }
+             if(index < 0) {
+                return;
+             }
+             // set first and last point, and let connectNulls fill in the rest
+             var i;
+             var seriesData = chartData.series[2].data;
+             for (i=1;i<index;i++) {
+                seriesData[i] = null;
+             }
+             seriesData[index] = 0;
+        },
+
+        _indexOfDate: function(chartData, date) {
+             var dateStr = Ext.Date.format(date, 'Y-m-d');
+             return chartData.categories.indexOf(dateStr);
+        },
+
+        _removeFutureSeries: function (chartData, seriesIndex, dayIndex) {
+            if(chartData.series[seriesIndex].data.length > dayIndex) {
+                while(++dayIndex < chartData.series[seriesIndex].data.length) {
+                    chartData.series[seriesIndex].data[dayIndex] = null;
+                }
+            }
+        },
+
+        _projectionsSlopePositive: function (chartData) {
+            if(chartData.projections && chartData.projections.series) {
+                return chartData.projections.series[0].slope >= 0;
+            }
+
+            return true;
+        }
+    });
+
+    Ext.define("MonteCarlo", {
+        seriesColor: "#0000ff",  // default, we'll clobber this
+
+        probabilityVisualization: "dots", // "filled", "original", "dots", "lines" or "none"
+
+        _truncate: function (data) {
+            var i = data.length-1;
+            while (i > 0 && data[i] == null) 
+                i--;
+            return data.slice(0, i+1);
+        },
+
+        transform: function(burnup, target) {
+            /**
+             * calculate the velocities of the current iterations
+             * @return an array of the velocity values
+             */
+            burnup = this._truncate(burnup);
+
+            var calcVelocities = function(burnup){
+                var velocities;
+                if(burnup == null || burnup.length === 0){
+                    velocities = [1];
+                }
+                else if(burnup.length === 1){
+                    velocities = [ burnup[0] ];
+                }
+                else{
+                    velocities = [];
+                    var prev = 0;
+                    for(var i=0, l=burnup.length; i < l; i++){
+                        var burn = burnup[i];
+                        velocities.push(burn - prev);
+                        prev = burn;
+                    }
+                }
+                return velocities;
+            };
+
+            return {
+                targetScope : target,
+                iterationsComplete : burnup.length,
+                pointsComplete : burnup,
+                velocities: calcVelocities(burnup)
+            };
+        },
+        calculateColorToUse: function(lastIndex, firstIndex, iterationIndex, mostLikelyIterationIndex, color) {
+            var gradients = (iterationIndex < mostLikelyIterationIndex) ? (mostLikelyIterationIndex - firstIndex) + 1 : (lastIndex - mostLikelyIterationIndex) + 1;
+            var gradient = (mostLikelyIterationIndex === iterationIndex)? 1.0 : 1.0 - ((1.0 / gradients) * Math.abs(mostLikelyIterationIndex - iterationIndex));
+            var bigint = parseInt(color.slice(1), 16);
+            var r = (bigint >> 16) & 255;
+            var g = (bigint >> 8) & 255;
+            var b = bigint & 255;
+
+            //var colorToUse = 'rgba(0,0,255,' + gradient + ')';
+            var colorToUse = 'rgba('+r+','+g+','+b+','+gradient+')';
+
+            if (iterationIndex == mostLikelyIterationIndex) {
+                colorToUse = "purple";
+            }
+            return colorToUse;
+        },
+        calculateDashStyleToUse: function(iterationIndex, mostLikelyIterationIndex) {
+            var dashStyle = "Dot";
+            if (iterationIndex == mostLikelyIterationIndex) {
+                dashStyle = "purple";
+            }
+            return dashStyle;
+        },
+
+        fill: function(event) {
+            var i;
+            var seriesIndex = this.options.chart.seriesIndex;
+            var todaysIterationIndex = this.options.chart.todaysIterationIndex;
+            var direction = this.options.chart.direction;
+            if (this.series[seriesIndex].data.length < 2)
+                return;
+
+            // find the starting point
+            var bbox1 = this.series[seriesIndex].data[todaysIterationIndex].graphic.element.getBBox();
+
+            // spacing is how far between x axis points, / 2
+            var spacing = (this.series[seriesIndex].data[1].plotX - this.series[seriesIndex].data[0].plotX) / 2;
+
+            for (i=4; i < this.series.length; i++) {
+                var bbox2 = this.series[i].graph.element.getBBox();
+                var plotY=this.plotTop;
+                var height = (direction == "up") ? bbox2.height : -bbox2.height;
+                var path = ['M', this.plotLeft+bbox1.x, plotY+bbox1.y, 'L', this.plotLeft+bbox2.x+bbox2.width-spacing,  plotY+bbox1.y-height, 'L', this.plotLeft+bbox2.x+bbox2.width+spacing, plotY+bbox1.y-height, 'Z' ];
+                var attr = {
+                    fill: this.series[i].color,
+                    zIndex: 10
+                };
+                this.renderer.path(path).attr(attr).add();
+                //this.series[i].setVisible(false); // this causes a shift if the last entry is made invisible...:-(
+            }
+        },
+
+        addPlotlines: function(chart, results, direction) {
+            var plotLines = [{
+                color: '#00AAFF',
+                value: results.todaysIterationIndex,
+                width: 2,
+                label: {
+                    text: 'TODAY',
+                    verticalAlign: 'bottom',
+                    textAlign: 'right',
+                    y: -10,
+                    style: {
+                        color: '#00AAFF'
+                    }
+                },
+                zIndex: 3
+            }, {
+                value: results.mostLikelyIteration,
+                width: 2,
+                color: "purple",
+                label: {
+                    text: 'PROBABLE FINISH',
+                    verticalAlign: 'bottom',
+                    textAlign: 'right',
+                    y: -10,
+                    style: {
+                        color: "purple"
+                    }
+                },
+                zIndex: 3
+            }];
+            if (direction == "down") {
+                _.each(plotLines, function(pl, idx){
+                    pl.label.verticalAlign = 'top';
+                    pl.label.textAlign = 'left';
+                    pl.label.y = 10;
+                });
+            }
+            chart.chartConfig.xAxis.plotLines = chart.chartConfig.xAxis.plotLines.concat(plotLines); 
+        },
+
+        histogram: function(chart, results) {
+            return {
+                chart: {
+                    type: 'column',
+                    marginLeft:100,
+                    marginBottom:0
+                },
+                tooltip : {
+                    enabled:false
+                },
+                title: {
+                    text: ''
+                },
+                plotOptions: {
+                    column : {
+                        dataLabels: {
+                            formatter: function() { return this.y == 0 ? '' : this.y ;},
+                            enabled:true
+                        }
+                    }
+                },
+                legend: {
+                    enabled: false
+                },
+                xAxis: {
+
+                    labels: {
+                        enabled:false
+                    },
+                    categories: chart.chartData.categories,
+                    max: chart.chartData.categories.length - 1
+                },
+                yAxis: {
+                    style: {
+                        color: '#00AAFF'
+                    },
+                    showFirstLabel: false,
+                    labels: {
+                        style: {
+                            color: '#00AAFF'
+
+                        }
+                    },
+                    title: {
+                        text: 'Probability'
+                    },
+                    min: 0
+                },
+                series: [{
+                    name: 'Counts',
+                    color: '#00AAFF',
+
+                    data: results.histogramSeries
+                }],
+                credits : {
+                    enabled:false
+                },
+                exporting: {
+                    enabled: false
+                }
+            };
+        },
+
+        extendCategories: function(chart, results) {
+            var datalen = Math.max(chart.chartData.categories.length, Math.max(results.burnupSeriesData.length + results.dataToVisualize.pointsComplete.length, results.histogramSeries.length));
+            if (datalen > chart.chartData.categories.length) {
+                var tobeadded = (datalen - chart.chartData.categories.length) + 1;
+                var lastDate = Ext.Date.parse(chart.chartData.categories[chart.chartData.categories.length - 1], 'Y-m-d');
+                index = chart.chartData.categories.length;
+                var dt = Ext.Date.add(lastDate, Ext.Date.DAY, 1);
+                while (tobeadded--) {
+                    while (chart.calculatorConfig.workDays.indexOf(Ext.Date.format(dt, 'l')) === -1) {
+                        dt = Ext.Date.add(dt, Ext.Date.DAY, 1);
+                    }
+                    if (tobeadded > 0) {
+                        chart.chartData.categories[index++] = Ext.Date.format(dt, 'Y-m-d');
+                    }
+                    dt = Ext.Date.add(dt, Ext.Date.DAY, 1);
+                }
+            }
+        },
+
+        extendHistogram: function(chart, results) {
+            var datalen = Math.max(chart.chartData.categories.length, Math.max(results.burnupSeriesData.length + results.dataToVisualize.pointsComplete.length, results.histogramSeries.length));
+            if (datalen > results.histogramSeries.length) {
+                var tobeadded = (datalen - results.histogramSeries.length);
+                var x = results.histogramSeries.length;
+                while (tobeadded--) {
+                    results.histogramSeries.push({ color: 'rgba(0,0,0,0)', x: x++, y: 0});
+                }
+            }
+        },
+
+        montecarlo: function(dataToVisualize, direction, style, color) {
+
+            if (style) {
+                this.probabilityVisualization = style;
+            }
+            var maximumNumberOfMonteCarloRuns = 1000;
+            var maximumIterations = maximumNumberOfMonteCarloRuns;
+
+            var possibilities = [],
+                maxX = 0,
+                firstSeriesIndex = 0,
+                lastSeriesIndex = 0,
+                mostLikelySeriesIndex = 0;
+
+            var start = {
+                iteration: dataToVisualize.iterationsComplete - 1,
+                pointsComplete: dataToVisualize.pointsComplete[dataToVisualize.iterationsComplete - 1]
+            };
+
+            for(var i=0; i < maximumNumberOfMonteCarloRuns; i++){
+                var current = start;
+                var path = [current];
+
+                // keep going until we get there or give up hope
+                // not sure what equals "give up hope"...adding a failsafe since I'm seeing infinite loopiness if there are not 
+                // appropriate velocities to get us there
+
+                while(current.iteration < maximumIterations) {
+                    if((direction == 'up' && current.pointsComplete >= dataToVisualize.targetScope) || (direction == 'down' && current.pointsComplete <= dataToVisualize.targetScope)) {
+                        break;
+                    }
+                    var randVelocity = _.sample(dataToVisualize.velocities);
+                    var newY = current.pointsComplete + randVelocity;
+
+                    // clip to the target scope
+                    if((direction == 'up' && newY > dataToVisualize.targetScope) || (direction == 'down' && newY < dataToVisualize.targetScope)) {
+                        newY = dataToVisualize.targetScope;
+                    }
+
+                    current = {
+                        iteration: current.iteration +1,
+                        pointsComplete: newY
+                    }
+                    path.push(current);
+
+                    if(current.pointsComplete === dataToVisualize.targetScope){
+                        possibilities.push(path);
+                        maxX = Math.max(maxX, current.iteration);
+                    }
+                }        
+            }
+
+            // end the simulation
+
+            // build histogram data
+            var countsByIteration = _.map(Array(maxX+1), function() { return 0; });
+            _.each(possibilities, function(possibility, idx){
+                // update the count by getting the last iteration in the
+                // possibility and incrementing that slot
+                countsByIteration[_.last(possibility).iteration]++
+            });
+
+            // determine with iteration (index) has the highest frequency
+            var mostLikelyIteration = _.indexOf(countsByIteration, _.max(countsByIteration));
+            var firstIndex = _.findIndex(countsByIteration, function(iter) {
+                return iter !== 0;
+            });
+            var lastIndex = maxX;  // unnecessary, but ...
+            var todaysIterationIndex = dataToVisualize.iterationsComplete - 1;
+            var burnupSeriesDataRoot = [
+                {
+                    data: dataToVisualize.pointsComplete,
+                    name: 'Actual'
+                }
+            ];
+            var burnupSeriesData = [];
+            var showPathsModulo = 50;
+
+            // the number of series showing per iteration. this is used to
+            // ensure we dont' show too many
+            var seriesCountPerIteration = _.map(Array(maxX+1), function() { return 0; });
+
+            // now build all the paths
+            _.each(possibilities, function(path, i) {
+
+                var iteration = _.last(path).iteration;
+
+                // let's ensure we show one line for each iteration
+                if (seriesCountPerIteration[iteration] > 0 && i % showPathsModulo !== 0) return;
+                seriesCountPerIteration[iteration]++;
+
+                var endsOnMax = (_.last(path).iteration == mostLikelyIteration);
+
+                var seriesData = _.map(path, function(pathPoint, idx){
+                    return {
+                        x: pathPoint.iteration,
+                        y: pathPoint.pointsComplete
+                    }
+                });
+
+                _.last(seriesData).marker = {
+                    enabled: true,
+                    symbol: endsOnMax ? 'circle' : 'triangle',
+                    radius: 4
+                }
+
+                var colorToUse = this.calculateColorToUse(lastIndex, firstIndex, iteration, mostLikelyIteration, color);
+                var dashStyle = this.calculateDashStyleToUse(iteration, mostLikelyIteration);
+
+                // unless we're doing style "original", just connect first and last points
+                if (seriesData.length > 2 && (this.probabilityVisualization === "lines" || this.probabilityVisualization === "filled" || this.probabilityVisualization === "dots" || this.probabilityVisualization ===  "none" ) ) {
+                    seriesData[1] = seriesData[seriesData.length-1];
+                    seriesData.length = 2;
+                    if (this.probabilityVisualization === "lines") {
+                        dashStyle = "purple";
+                    }
+                }
+                // and ensure only one instance of each
+                if ((this.probabilityVisualization === "none" && iteration === mostLikelyIteration) || this.probabilityVisualization === "original" || (this.probabilityVisualization === "lines" || this.probabilityVisualization === "filled" || this.probabilityVisualization === "dots") && !_.find(burnupSeriesData, function(series) {
+                //if (!_.find(burnupSeriesData, function(series) {
+                    return series.data[1].x === seriesData[1].x
+                })) {
+                    if (this.probabilityVisualization === "none" && iteration !== mostLikelyIteration) {
+                        // need the points to be there to keep the histogram aligned, but just don't show up
+                        colorToUse = "rgba(0,0,0,0)";
+                    }
+                    burnupSeriesData.push({
+                        data: seriesData,
+                        dashStyle: dashStyle,
+                        color: colorToUse,
+                        marker: {
+                            symbol: 'circle',
+                            radius: 2
+                        },
+                        showInLegend: false,
+                        lineWidth: 2
+                    });
+                    if (iteration === firstIndex)
+                        firstSeriesIndex = burnupSeriesData.length;
+                    if (iteration === mostLikelyIteration)
+                        mostLikelySeriesIndex = burnupSeriesData.length;
+                    if (iteration === lastIndex)
+                        lastSeriesIndex = burnupSeriesData.length;
+                }
+            }, this);
+
+            var histogramSeries = _.map(countsByIteration, function(frequency,iteration) {
+                var colorToUse = this.calculateColorToUse(lastIndex, firstIndex, iteration, mostLikelyIteration, color)
+
+                return { x: iteration, y: frequency , color: colorToUse };
+            }, this);
+
+            if (style != "original") {
+                burnupSeriesData = _.sortBy(burnupSeriesData, function(item) { return item.data[item.data.length-1].x });
+            }
+            burnupSeriesData = burnupSeriesDataRoot.concat(burnupSeriesData);
+
+            if (style != "original" && style != "none") {
+                // eliminate 'stragglers'...ones that have a count of 0 or 1 at the end...trying to reduce wasted chart width and 'noise'
+                for (var i = histogramSeries.length-1; i > 0; i--) {
+                    if ( histogramSeries[i].y === 1 || histogramSeries[i].y === 0) {
+                        if ( histogramSeries[i].y === 1) {
+                            burnupSeriesData.length--;
+                        }
+                        histogramSeries.length--;
+                    } else break;
+                }
+                lastSeriesIndex = burnupSeriesData.length -1;
+            }
+
+            // indexes are adjusted for the inital series in series[0]...
+            return {
+                firstSeriesIndex: firstSeriesIndex,
+                lastSeriesIndex: lastSeriesIndex,
+                mostLikelySeriesIndex: mostLikelySeriesIndex,
+                mostLikelyIteration: mostLikelyIteration,
+                histogramSeries: histogramSeries,
+                burnupSeriesData: burnupSeriesData,
+                todaysIterationIndex : todaysIterationIndex,
+                dataToVisualize: dataToVisualize
+            }
+        }
+
+    });
+
+
+    // Ext.define("Rally.apps.charts.DateMixin", {
+    Ext.define("DateMixin", {   
+
+        dateFormatters: [
+            {key: "MMM", value: "%b"},
+            {key: "MM", value: "%m"},
+            {key: "dd", value: "%d"},
+            {key: "yyyy", value: "%Y"}
+        ],
+
+        dateToStringDisplay: function (date) {
+            return Ext.Date.format(date, 'm/d/Y');
+        },
+
+        dateToString: function (date) {
+            return Ext.Date.format(date, 'Y-m-d\\TH:i:s.u\\Z');
+        },
+
+        dateStringToObject: function (dateStr) {
+            var finalIndex = dateStr.indexOf('T'),
+                dateObj;
+
+            if (finalIndex > -1) {
+                dateStr = dateStr.slice(0, dateStr.indexOf('T'));
+            }
+
+            dateObj = this._splitDateParts(dateStr);
+
+            return new Date(dateObj.year, dateObj.month, dateObj.day);
+        },
+
+        _splitDateParts: function (dateStr) {
+            if (this._shouldSplitOnDash(dateStr)) {
+                return this._objectFromYearFirstDate(dateStr.split('-'));
+            }
+            else {
+                return this._objectFromMonthFirstDate(dateStr.split('/'));
+            }
+        },
+
+        _objectFromYearFirstDate: function (dateArray) {
+            if (dateArray.length !== 3) {
+                return { year: 0, month: 0, day: 0 };
+            }
+
+            dateArray[1] = (parseInt(dateArray[1], 10) - 1).toString();
+
+            return {
+                year: dateArray[0],
+                month: dateArray[1],
+                day: dateArray[2]
+            };
+        },
+
+        _objectFromMonthFirstDate: function (dateArray) {
+            if (dateArray.length !== 3) {
+                return { year: 0, month: 0, day: 0 };
+            }
+
+            dateArray[0] = (parseInt(dateArray[0], 10) - 1).toString();
+
+            return {
+                month: dateArray[0],
+                day: dateArray[1],
+                year: dateArray[2]
+            };
+        },
+
+        _shouldSplitOnDash: function (dateStr) {
+            return dateStr.split('-').length === 3;
+        }
+
+    });
+
+    // Ext.define('Rally.apps.charts.burndown.BurnDownApp', {
+    Ext.define('CustomApp', { 
+        extend: 'Rally.app.TimeboxScopedApp',
+
+        settingsScope: 'workspace',
+
+        requires: [
+            //'Rally.apps.charts.burndown.BurnDownSettings',
+            'Rally.data.WsapiDataStore',
+            'Rally.ui.combobox.IterationComboBox',
+            'Rally.ui.combobox.ReleaseComboBox'
+        ],
+
+        mixins: [
+            //'Rally.apps.charts.DateMixin',
+            //'Rally.apps.charts.burndown.BurnDownChart'
+            'BurndownChart',
+            'DateMixin'
+        ],
+
+        cls: 'burndown-app',
+
+        //items: [
+        //    {
+        //        xtype: 'container',
+        //        itemId: 'header',
+        //        cls: 'header'
+        //    }
+        //],
+
+        //help: {
+        //    id: 278
+        //},
+        
+        // added for standalone...SET DESIRED CONFIG HERE
+        defaultConfig: {
+            settings: {
+                scopeType: 'release', // must match type of page if timebox scoped page
+                chartTimebox: 'release',
+                chartDisplayType: 'column', // or line
+                chartAggregationType: 'storypoint', // or storypoint
+                onScopedDashboard: true // or true, if on a scoped dashboard page
+            }
+        },
+        // added for standalone.  "like" new SDK method in TimeboxScopedApp
+        isOnScopedDashboard: function() {
+            return this.settings.onScopedDashboard===true || this.settings.onScopedDashboard==="true";
+        },
+
+        scopeObject: undefined,
+
+        customScheduleStates: ['Accepted'], // a reasonable default
+
+        //getSettingsFields: function () {
+        //    this.chartSettings = this.chartSettings || Ext.create('Rally.apps.charts.burndown.BurnDownSettings', {
+        //        app: this
+        //    });
+
+        //    return this.chartSettings.getFields();
+        //},
+
+        onScopeChange: function (scope) {
+            if (!this.ignoreOnScopeChange) {
+                this._rebuildChartForScope(scope.getRecord().get('_ref'));
+            }
+        },
+
+        launch: function () {
+            this.updateSettingsValues(this.defaultConfig); // added for standalone
+            this.scopeType = this.defaultConfig.settings.scopeType;
+
+            //if (this._settingsInvalid()) {
+            //    if (this.owner) {
+            //        this.owner.showSettings();
+            //        return;
+            //    }
+            //}
+
+            //this._addHelpComponent();
+            this.callParent(arguments);
+            this._loadUserStoryModel();
+            this._saveScopeType();
+            //this.callParent(arguments);
+
+            if (!this.isOnScopedDashboard()) {
+                this.ignoreOnScopeChange = true;
+                this._getScopePicker().on('ready', this._loadScopePreference, this, {single: true});
+            } //else {
+               // this._loadScopeObject(this._getScopePicker());
+            //}
+        },
+
+        //_addHelpComponent: function () {
+        //    this.down('#header').add(this._buildHelpComponent());
+        //},
+
+        //_buildHelpComponent: function () {
+        //    return Ext.create('Ext.Component', {
+        //        renderTpl: Rally.util.Help.getIcon({
+        //            cls: Rally.util.Test.toBrowserTestCssClass(this.help.cls),
+        //            id: this.help.id
+        //        })
+        //    });
+        //},
+
+        _rebuildChartForScope: function(scopeRef) {
+            this._destroyChart();
+
+            this._saveScopePreference(scopeRef);
+            this._loadScopeObject(scopeRef);
+        },
+
+        _destroyChart: function () {
+            this.remove('burndownchart');
+            var histogram = document.getElementById('histogram');
+            if (histogram) histogram.remove();
+        },
+
+        _saveScopePreference: function (scopeRef) {
+            if (!this.isOnScopedDashboard()) {
+                var settings = {};
+                settings[this._getScopeType()] = scopeRef;
+
+                Rally.data.PreferenceManager.update({
+                    appID: this.getContext().get('appID'),
+                    settings: settings,
+                    scope: this
+                });
+            }
+        },
+
+        _loadScopePreference: function (picker) {
+            Rally.data.PreferenceManager.load({
+                appID: this.getContext().get('appID'),
+                success: function (preferences) {
+                    var scopeRef = preferences[this._getScopeType()];
+                    if (!scopeRef || scopeRef === 'undefined') {
+                        var pickerRecord = picker.getRecord();
+                        if (pickerRecord) {
+                            scopeRef = pickerRecord.get('_ref');
+                            this._saveScopePreference(scopeRef);
+                        }
+                    }
+                    this.ignoreOnScopeChange = false;
+
+                    if (scopeRef && scopeRef !== 'undefined') {
+                        this._setScopeValue(scopeRef);
+                        scopeRef = this._getScopePicker().getValue();
+                        if (scopeRef) {
+                            this._rebuildChartForScope(scopeRef);
+                        }
+                    }
+                },
+                scope: this
+            });
+        },
+
+        _setScopeValue: function (scopeRef) {
+            this._getScopePicker().setValue(scopeRef);
+        },
+
+        _loadTimeboxes: function() {
+            var timeboxStore = Ext.create('Rally.data.WsapiDataStore', {
+                model: this.scopeObject._type,
+                filters: [
+                    {
+                        property: 'Name',
+                        operator: '=',
+                        value: this.scopeObject.Name
+                    },
+                    {
+                        property: this._getScopeObjectStartDateName(),
+                        operator: '=',
+                        value: Rally.util.DateTime.toIsoString(this._getScopeObjectStartDate(), true)
+                    },
+                    {
+                        property: this._getScopeObjectEndDateName(),
+                        operator: '=',
+                        value: Rally.util.DateTime.toIsoString(this._getScopeObjectEndDate(), true)
+                    }
+                ],
+                context: {
+                    workspace: this.getContext().getWorkspaceRef(),
+                    project: this.getContext().getProjectRef()
+                },
+                fetch: ['ObjectID'],
+                limit: Infinity
+            });
+
+            timeboxStore.on('load', this._getTimeboxesInScope, this);
+            timeboxStore.load();
+        },
+
+        _onScopeObjectLoaded: function (record) {
+            this._setScopeFromData(record);
+
+            this._updateChartTitle();
+            this._updateYAxis();
+
+            this._addDateBounds();
+            this._addAggregationTypeToCalculator();
+            this._updateCompletedScheduleStates();
+            this._loadTimeboxes();
+        },
+
+        _renderChartBasedOnType: function () {
+            if (this._getScopeType() === 'release') {
+                this._fetchIterations();
+            } else {
+                this._addChart();
+            }
+        },
+
+        _setScopeFromData: function (record) {
+            this.scopeObject = record.data;
+        },
+
+        _getTimeboxesInScope: function (store) {
+            var storeConfig = this.chartComponentConfig.storeConfig;
+            var type = Ext.String.capitalize(this._getScopeType());
+            var oids = [];
+            var i;
+
+            this.timeboxes = store.getItems();
+            this._clearStoreConfig(storeConfig);
+
+            for (i = 0; i < this.timeboxes.length; i++) {
+                oids.push(this.timeboxes[i].ObjectID);
+            }
+            storeConfig.find[type] = { '$in' : oids };
+
+            this._renderChartBasedOnType();
+
+        },
+
+        _onIterationsLoaded: function (store) {
+            this.iterations = store.getItems();
+
+            this._addChart();
+            this.down('rallychart').on('snapshotsAggregated', this._addIterationLines, this);
+        },
+
+        _addDateBounds: function () {
+            this._addDateBoundsToQuery();
+            this._addDateBoundsToCalculator();
+        },
+
+        _addDateBoundsToQuery: function () {
+
+        },
+
+        _addDateBoundsToCalculator: function () {
+            var calcConfig = this.chartComponentConfig.calculatorConfig;
+            var endDate = this._getScopeObjectEndDate();
+            var now = new Date();
+            calcConfig.startDate = Rally.util.DateTime.toIsoString(this._getScopeObjectStartDate(), true);
+            if(now > this._getScopeObjectStartDate() && now < this._getScopeObjectEndDate()) {
+                endDate = now;
+            }
+            calcConfig.endDate = Rally.util.DateTime.toIsoString(endDate, true);
+            // S53625: If the time-box has ended, disable the projection line
+            if (now > this._getScopeObjectEndDate()) {
+                calcConfig.enableProjections = false;
+            } else {
+                calcConfig.enableProjections = true;
+            }
+            // add scopeEndDate, which may or may not be the same as endDate
+            calcConfig.scopeEndDate = this._getScopeObjectEndDate();
+            // add scopeStartDate, 
+            calcConfig.scopeStartDate = this._getScopeObjectStartDate();
+        },
+
+        _addAggregationTypeToCalculator: function () {
+            var calcConfig = this.chartComponentConfig.calculatorConfig;
+            calcConfig.chartAggregationType = this.getSetting('chartAggregationType');
+        },
+
+        _updateCompletedScheduleStates: function () {
+            var calcConfig = this.chartComponentConfig.calculatorConfig;
+            calcConfig.completedScheduleStateNames = this.customScheduleStates;
+        },
+
+        _loadScopeObject: function (scopeRef) {
+            Rally.data.ModelFactory.getModel({
+                type: this._getScopeType(),
+
+                context: {
+                    workspace: this.getContext().getWorkspaceRef(),
+                    project: null
+                },
+                success: function(model) {
+                    model.load(Rally.util.Ref.getOidFromRef(scopeRef), {
+                        success: function(record) {
+                            this._onScopeObjectLoaded(record);
+                        },
+                        scope: this
+                    });
+                },
+                scope: this
+            });
+        },
+
+        _fetchIterations: function () {
+            var store = Ext.create('Rally.data.WsapiDataStore', {
+                model: 'Iteration',
+                filters: [
+                    {
+                        property: 'StartDate',
+                        operator: '>=',
+                        value: Rally.util.DateTime.toIsoString(this._getScopeObjectStartDate(), true)
+                    },
+                    {
+                        property: 'EndDate',
+                        operator: '<=',
+                        value: Rally.util.DateTime.toIsoString(this._getScopeObjectEndDate(), true)
+                    }
+                ],
+                context: {
+                    workspace: this.getContext().getWorkspaceRef(),
+                    project: this.getContext().getProjectRef()
+                },
+                fetch: ['Name','StartDate','EndDate'],
+                limit: Infinity
+            });
+
+            store.on('load', this._onIterationsLoaded, this);
+            store.load();
+        },
+
+        _areIterationsEqual: function (iteration1, iteration2) {
+            return iteration1.Name === iteration2.Name &&
+                   iteration1.StartDate === iteration2.StartDate &&
+                   iteration1.EndDate === iteration2.EndDate;
+        },
+
+        _addIterationLines: function (chart) {
+            var axis = chart.chartConfig.xAxis;
+            var categories = chart.chartData.categories;
+            var i, j;
+            var uniqueIterations = [];
+            var unique;
+
+            //axis.plotLines = [];
+            axis.plotBands = [];
+
+            for (i = 0; i < this.iterations.length; i++) {
+                unique = true;
+                for (j = 0; j < uniqueIterations.length; j++) {
+                    if(this._areIterationsEqual(uniqueIterations[j], this.iterations[i])) {
+                        unique = false;
+                        break;
+                    }
+                }
+                if(unique === true) {
+                    uniqueIterations.push(this.iterations[i]);
+                }
+            }
+
+            for (i = 0; i < uniqueIterations.length; i++) {
+                axis.plotLines.push(this._getPlotLine(categories, uniqueIterations[i], false));
+                axis.plotBands.push(this._getPlotBand(categories, uniqueIterations[i], i % 2 !== 0));
+            }
+
+            if (uniqueIterations.length > 0) {
+                axis.plotLines.push(this._getPlotLine(categories, uniqueIterations[uniqueIterations.length - 1], true));
+            }
+        },
+
+        _getPlotBand: function (categories, iteration, shouldColorize) {
+            var startDate = this.dateStringToObject(iteration.StartDate);
+            var endDate = this.dateStringToObject(iteration.EndDate);
+
+            return {
+                color: shouldColorize ? '#F2FAFF' : '#FFFFFF',
+                from: this._getNearestWorkday(categories, startDate),
+                to: this._getNearestWorkday(categories, endDate),
+                label: {
+                    text: iteration.Name,
+                    align: 'center',
+                    rotation: 0,
+                    y: -7
+                }
+            };
+        },
+
+        _getNearestWorkday: function(categories, date) {
+            var dateStr = Ext.Date.format(date, 'Y-m-d');
+            var index = categories.indexOf(dateStr);
+            if(index === -1) {
+                var workdays = this._getWorkspaceConfiguredWorkdays();
+                if(workdays.length < 1) {
+                    return -1;
+                }
+                // date not in categories (probably) means it falls on a non-workday...back up to the next previous workday
+                while (workdays.indexOf(Ext.Date.format(date, 'l')) === -1 && date > this._getScopeObjectStartDate()) {
+                    date = Ext.Date.add(date, Ext.Date.DAY, -1);
+                    dateStr = Ext.Date.format(date, 'Y-m-d');
+                    index = categories.indexOf(dateStr);
+                }
+            }
+            return index;
+        },
+
+        _getPlotLine: function (categories, iteration, lastLine) {
+            var dateObj;
+            var dateIndex;
+
+            if (lastLine) {
+                dateObj = this.dateStringToObject(iteration.EndDate);
+            } else {
+                dateObj = this.dateStringToObject(iteration.StartDate);
+            }
+
+            dateIndex = this._getNearestWorkday(categories, dateObj);
+
+            return {
+                color: '#BBBBBB',
+                dashStyle: 'ShortDash',
+                width: 2,
+                zIndex: 3,
+                value: dateIndex
+            };
+        },
+
+        _addChart: function () {
+            this._updateChartConfigDateFormat();
+            this._updateChartConfigWorkdays();
+            var chartComponentConfig = Ext.Object.merge({}, this.chartComponentConfig);
+
+            this.add(chartComponentConfig);
+            this.down('rallychart').on('snapshotsAggregated', this._onSnapshotDataReady, this);
+        },
+
+
+        _onSnapshotDataReady: function (chart) {
+            var doMC = true;
+            var now = new Date();
+            // don't do MC prediction unless in the timebox
+            if (doMC && now > chart.calculatorConfig.scopeStartDate && now < chart.calculatorConfig.scopeEndDate) {
+                this.getEl().setHeight(document.body.scrollHeight); // insure we set it 'back'
+                
+                var montecarlo = new MonteCarlo();
+                // change these to configure the chart(s)
+                var direction = "down"; // "up" or "down"
+                var style = "filled"; // "filled", "original", "dots", "lines" or "none"
+ 
+                var predictionIndex = 3;  // set to -1 if there is none
+                var idealIndex = 2; 
+ 
+                // defaults, don't change these
+                var seriesIndex = 0; 
+                var color = "#005EB8"; // .chart3
+                var scope = 0;
+
+                if (direction == "up") {
+                    // burn UP to the scope line from accepted pts
+                    seriesIndex = 1;
+                    color = "#8DC63F"; // .chart5
+                    scope = chart.chartData.series[idealIndex].data[0];
+                }
+
+                // do the work...
+                
+                // get rid of trailing nulls
+                chart.chartData.series[seriesIndex].data = montecarlo._truncate(chart.chartData.series[seriesIndex].data);
+                // run the simulation
+                var monteresults = montecarlo.montecarlo(montecarlo.transform(chart.chartData.series[seriesIndex].data, scope), direction, style, color);
+                // add the results to the end of the series
+                chart.chartData.series = chart.chartData.series.concat(monteresults.burnupSeriesData.slice(1));
+
+
+                if (chart.chartData.series.length > 4) { // need a better way to know if there's data worth plotting
+                    // add missing categories
+                    montecarlo.extendCategories(chart, monteresults);
+                    // extend the histogram data, if necessary
+                    montecarlo.extendHistogram(chart, monteresults);
+                    // turn off the 'normal' predication line
+                    if (predictionIndex > 0) {
+                        chart.chartData.series[predictionIndex].visible = false;
+                        chart.chartData.series[predictionIndex].showInLegend = false;
+                    }
+
+                    chart.chartConfig.yAxis[0].max = chart.chartData.series[idealIndex].data[0];
+                    chart.chartConfig.yAxis[0].min = 0;
+                    chart.chartConfig.xAxis.max = chart.chartData.categories.length - 1;
+
+                    if (montecarlo.probabilityVisualization == "filled" && chart.chartData.series.length < 100) { // filling too many takes forever
+
+                        chart.chartConfig.plotOptions.animation = false; // or it may take forever
+                        chart.chartConfig.chart.todaysIterationIndex = monteresults.todaysIterationIndex; // i feel dirty
+                        chart.chartConfig.chart.seriesIndex = seriesIndex;
+                        chart.chartConfig.chart.direction = direction;
+                        
+                        chart.chartConfig.chart.events = {
+                            load: montecarlo.fill
+                        };
+                    }
+
+
+                    montecarlo.addPlotlines(chart, monteresults, direction); 
+
+                    chart.chartConfig.chart.height = document.body.scrollHeight-200;
+                    this.getEl().setHeight(document.body.scrollHeight-200);
+                    $('body').append('<div id="histogram" style="height: 200px"></div>'); 
+                    $('#histogram').highcharts(montecarlo.histogram(chart, monteresults));
+                }
+            }
+
+            this._updateDisplayType(chart);
+            this._updateXAxis(chart);
+        },
+
+        _updateDisplayType: function (chart) {
+            var series = chart.chartData.series;
+            var displayType = this.getSetting('chartDisplayType');
+            var i;
+
+            for (i = 0; i < series.length; i++) {
+                if (series[i].hasOwnProperty('name') && this._seriesFollowsDisplayType(series[i])) {
+                    series[i].type = displayType;
+                }
+            }
+        },
+
+        _seriesFollowsDisplayType: function (series) {
+            return series.name.indexOf('Ideal') === -1 && series.name.indexOf('Prediction') === -1;
+        },
+
+        _updateYAxis: function () {
+            this._updateYAxisTitle();
+            this._updateYAxisConfig();
+        },
+
+        _updateYAxisTitle: function () {
+            var chartConfig = this.chartComponentConfig.chartConfig;
+            chartConfig.yAxis = [
+                {}
+            ];
+            chartConfig.yAxis[0].title = {
+                text: this._getAxisTitleBasedOnAggregationType()
+            };
+        },
+
+        _updateYAxisConfig: function () {
+            var axis = this.chartComponentConfig.chartConfig.yAxis[0];
+            axis.min = 0;
+            axis.labels = {
+                x: -5,
+                y: 4
+            };
+        },
+
+        _updateXAxis: function (chart) {
+            if(this.container.dom.offsetWidth < 1000) {
+                chart.chartConfig.xAxis.labels.staggerLines = 2;
+            }
+            //chart.chartConfig.xAxis.labels.step = Math.round( chart.chartData.categories.length / 100 );
+            chart.chartConfig.xAxis.tickInterval = this._configureChartTicks(chart.chartData.categories.length);
+        },
+
+        _configureChartTicks: function (days) {
+            var pixelTickWidth = 125,
+                appWidth = this.getWidth(),
+                ticks = Math.floor(appWidth / pixelTickWidth);
+
+            return Math.ceil(days / ticks);
+        },
+
+        _getAxisTitleBasedOnAggregationType: function () {
+            var aggregationType = this.getSetting('chartAggregationType');
+            if (aggregationType === 'storycount') {
+                return 'Count';
+            } else {
+                return 'Points';
+            }
+        },
+
+        _updateChartConfigDateFormat: function () {
+            var self = this;
+
+            this.chartComponentConfig.chartConfig.xAxis.labels.formatter = function () {
+                return self._formatDate(self.dateStringToObject(this.value));
+            };
+        },
+
+        _updateChartConfigWorkdays: function () {
+            this.chartComponentConfig.calculatorConfig.workDays = this._getWorkspaceConfiguredWorkdays().split(',');
+        },
+
+        _parseRallyDateFormatToHighchartsDateFormat: function () {
+            var dateFormat = this._getUserConfiguredDateFormat() || this._getWorkspaceConfiguredDateFormat();
+
+            for (var i = 0; i < this.dateFormatters.length; i++) {
+                dateFormat = dateFormat.replace(this.dateFormatters[i].key, this.dateFormatters[i].value);
+            }
+
+            return dateFormat;
+        },
+
+        _formatDate: function (date) {
+            if (!this.dateFormat) {
+                this.dateFormat = this._parseRallyDateFormatToHighchartsDateFormat();
+            }
+
+            return Highcharts.dateFormat(this.dateFormat, date.getTime());
+        },
+
+        _getUserConfiguredDateFormat: function () {
+            return this.getContext().getUser().UserProfile.DateFormat;
+        },
+
+        _getWorkspaceConfiguredDateFormat: function () {
+            return this.getContext().getWorkspace().WorkspaceConfiguration.DateFormat;
+        },
+
+        _getWorkspaceConfiguredWorkdays: function () {
+            return this.getContext().getWorkspace().WorkspaceConfiguration.WorkDays;
+        },
+
+        _updateChartTitle: function () {
+            this.chartComponentConfig.chartConfig.title = this._buildChartTitle();
+        },
+
+        _buildChartTitle: function () {
+            var widthPerCharacter = 10;
+            //var totalCharacters = Math.floor(this.getWidth() / widthPerCharacter);
+            var title = this._getDefaultTitle();
+            var align = 'center';
+
+            if (this.scopeObject) {
+                title = this.scopeObject.Name;
+            }
+
+            //if (totalCharacters < title.length) {
+                //title = title.substring(0, totalCharacters) + '...';
+            //    align = 'left';
+            //}
+
+            return {
+                text: title,
+                align: align,
+                margin: 30
+            };
+        },
+
+        _getDefaultTitle: function () {
+            return Ext.String.capitalize(this._getScopeType());
+        },
+
+        _settingsInvalid: function () {
+            var chartAggregationType = this.getSetting('chartAggregationType'),
+                chartDisplayType = this.getSetting('chartDisplayType'),
+                chartTimebox = this.getSetting('chartTimebox');
+
+            var invalid = function (value) {
+                return !value || value === 'undefined';
+            };
+
+            return invalid(chartAggregationType) || invalid(chartDisplayType) ||
+                this._chartTimeboxInvalid(chartTimebox);
+        },
+
+        _chartTimeboxInvalid: function (chartTimebox) {
+            if (this.context.getTimeboxScope()) {
+                return false;
+            }
+
+            return !chartTimebox || chartTimebox === 'undefined';
+        },
+
+        _saveScopeType: function () {
+            this.scopeType = this._getScopeType();
+        },
+
+        _getScopeType: function () {
+            if (this.isOnScopedDashboard()) {
+                return this._getDashboardScopeType();
+            } else {
+                return this._getSavedScopeType();
+            }
+        },
+
+        _getDashboardScopeType: function () {
+            return this.getContext().getTimeboxScope().getType();
+        },
+
+        _getSavedScopeType: function () {
+            return this.getSetting('chartTimebox');
+        },
+
+        _getScopePicker: function () {
+            if (this.isOnScopedDashboard()) {
+                return this.getContext().getTimeboxScope();
+            } else {
+                return this.down('rally' + this._getScopeType() + 'combobox');
+            }
+        },
+
+        _getScopeObjectStartDateName: function () {
+            if (!this.scopeObject) {
+                return '';
+            } else if (this.scopeObject._type === 'release') {
+                return 'ReleaseStartDate';
+            } else {
+                return 'StartDate';
+            }
+        },
+
+        _getScopeObjectEndDateName: function () {
+            if (!this.scopeObject) {
+                return '';
+            } else if (this.scopeObject._type === 'release') {
+                return 'ReleaseDate';
+            } else {
+                return 'EndDate';
+            }
+        },
+
+        _getScopeObjectStartDate: function () {
+            if (!this.scopeObject) {
+                return new Date();
+            } else if (this.scopeObject._type === 'release') {
+                return this.scopeObject.ReleaseStartDate;
+            } else {
+                return this.scopeObject.StartDate;
+            }
+        },
+
+        _getScopeObjectEndDate: function () {
+            if (!this.scopeObject) {
+                return new Date();
+            } else if (this.scopeObject._type === 'release') {
+                return this.scopeObject.ReleaseDate;
+            } else {
+                return this.scopeObject.EndDate;
+            }
+        },
+
+        _clearStoreConfig: function (storeConfig) {
+            if (storeConfig.find.hasOwnProperty('Release')) {
+                delete storeConfig.find.Release;
+            }
+
+            if (storeConfig.find.hasOwnProperty('Iteration')) {
+                delete storeConfig.find.Iteration;
+            }
+        },
+
+        _loadUserStoryModel: function() {
+            Rally.data.ModelFactory.getModel({
+                type: "UserStory",
+                context: this._getContext(),
+                success: function(model) {
+                    this._getScheduleStateValues(model);
+                },
+                scope: this
+            });
+        },
+
+        _getContext: function() {
+            return {
+                workspace: this.context.getWorkspaceRef(),
+                project: null
+            };
+        },
+
+        _getScheduleStateValues: function (model) {
+            if(model) {
+                model.getField("ScheduleState").getAllowedValueStore().load({
+                    callback: function(records, operation, success) {
+                        var scheduleStates = _.collect(records, function(obj) {
+                            return obj.raw;
+                        });
+
+                        var store = this._wrapRecords(scheduleStates);
+                        var values = [];
+                        var acceptedSeen = false;
+                        for(var i = 0; i < store.data.items.length; i++) {
+                            if(store.data.items[i].data.StringValue === 'Accepted') {
+                                acceptedSeen = true;
+                            }
+                            if(acceptedSeen) {
+                                values.push(store.data.items[i].data.StringValue);
+                            }
+                        }
+
+                        if(values.length > 0) {
+                            this.customScheduleStates = values;
+                            this._updateCompletedScheduleStates();
+                        }
+                    },
+                    scope: this
+                });
+            }
+        },
+        
+        _wrapRecords: function(records) {
+            return Ext.create("Ext.data.JsonStore", {
+                fields: ["_ref", "StringValue"],
+                data: records
+            });
+        }
+
+
+    });
+
+
+
+            Rally.launchApp('CustomApp', {
+                name:"BurndownApp",
+                parentRepos:""
+            });
+
+        });
+    </script>
+
+
+    <style type="text/css">
+        .app {
+     /* Add app styles here */
+}
+
+    </style>
+</head>
+<body></body>
+</html>

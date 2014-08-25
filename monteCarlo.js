@@ -2,7 +2,7 @@ $(function () {
 	var seriesColor = "#0000ff";
 	var maximumNumberOfMonteCarloRuns = 1000;
 
-	var probabilityVisualization = "dots" // "filled", "original", "dots" or "lines" or "none"
+	var probabilityVisualization = "filled" // "filled", "original", "dots" or "lines" or "none"
 
 
 	var query = function() {
@@ -14,7 +14,7 @@ $(function () {
 		var burnUp = [1, 5, 9, 15, 18];
 
 		/**
-		 * calculate the velocityies of the current iterations
+		 * calculate the velocities of the current iterations
 		 * @return an array of the velocity values
 		 */
 		var calcVelocities = function(burnUp){
